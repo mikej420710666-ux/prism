@@ -7,16 +7,9 @@
     --background: 0 0% 100%;
     --foreground: 222.2 84% 4.9%;
   }
-
   .dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
-  }
-}
-
-@layer base {
-  * {
-    @apply border-border;
   }
   body {
     @apply bg-gray-50 text-gray-900;
@@ -25,18 +18,15 @@
 
 @layer components {
   .btn-primary {
-    @apply bg-prism-purple hover:bg-prism-purple/90 text-white font-semibold py-2 px-4 rounded-lg transition-colors;
+    @apply bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors;
   }
-
   .btn-secondary {
     @apply bg-gray-200 hover:bg-gray-300 text-gray-900 font-semibold py-2 px-4 rounded-lg transition-colors;
   }
-
   .card {
     @apply bg-white rounded-xl shadow-md border border-gray-200 p-6;
   }
-
   .input {
-    @apply w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-prism-purple focus:border-transparent outline-none transition;
+    @apply w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-600 focus:border-transparent outline-none transition;
   }
 }

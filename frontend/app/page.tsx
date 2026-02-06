@@ -3,7 +3,7 @@
 export const dynamic = 'force-dynamic';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Sparkles, Twitter, TrendingUp, Clock, BarChart3 } from 'lucide-react';
 import AuthButton from '@/components/AuthButton';
 import { auth } from '@/lib/auth';
@@ -11,12 +11,13 @@ import toast from 'react-hot-toast';
 
 export default function LandingPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Handle OAuth callback
-    const token = searchParams.get('access_token');
+    // Handle OAuth callback from URL
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('access_token');
+    
     if (token) {
       auth.setToken(token);
       toast.success('Connected successfully!');
@@ -31,7 +32,7 @@ export default function LandingPage() {
     }
 
     setLoading(false);
-  }, [router, searchParams]);
+  }, [router]);
 
   if (loading) {
     return (
@@ -59,7 +60,6 @@ export default function LandingPage() {
           <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
             Automate Your X Growth
           </h2>
-
           <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto">
             Discover viral posts, remix them in your voice using AI, and schedule them automatically.
             Grow your X presence effortlessly.
@@ -104,7 +104,6 @@ export default function LandingPage() {
         {/* How It Works */}
         <div className="mt-24 text-center">
           <h3 className="text-3xl font-bold mb-12">How It Works</h3>
-
           <div className="grid md:grid-cols-4 gap-6">
             {[
               { step: 1, title: 'Connect X', desc: 'Link your X account with OAuth 2.0' },

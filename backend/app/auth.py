@@ -7,29 +7,12 @@ from datetime import datetime, timedelta
 from typing import Optional, Dict
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from pydantic_settings import BaseSettings
 import httpx
 import secrets
 import hashlib
 import base64
 from urllib.parse import urlencode
-
-
-class Settings(BaseSettings):
-    secret_key: str
-    algorithm: str = "HS256"
-    access_token_expire_minutes: int = 43200  # 30 days
-
-    # X OAuth 2.0
-    x_client_id: str
-    x_client_secret: str
-    x_oauth_callback_url: str
-
-    class Config:
-        env_file = ".env"
-
-
-settings = Settings()
+from app.database import settings
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -54,10 +37,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
+        expire = datetime.utcnow() + timedelta(minutes=settings.jwt_expiration_minutes)
 
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+    encoded_jwt = jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
     return encoded_jwt
 
@@ -67,7 +50,7 @@ def verify_token(token: str) -> Optional[dict]:
     Verify and decode a JWT token
     """
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
         return payload
     except JWTError:
         return None
@@ -119,10 +102,13 @@ def get_x_oauth_url(state: str) -> tuple[str, str]:
     """
     code_verifier, code_challenge = generate_pkce_pair()
 
+    # Use x_oauth_callback_url if set, otherwise use x_redirect_uri
+    redirect_uri = settings.x_oauth_callback_url or settings.x_redirect_uri
+    
     params = {
         "response_type": "code",
         "client_id": settings.x_client_id,
-        "redirect_uri": settings.x_oauth_callback_url,
+        "redirect_uri": redirect_uri,
         "scope": " ".join(X_OAUTH_SCOPES),
         "state": state,
         "code_challenge": code_challenge,
@@ -153,6 +139,9 @@ async def exchange_code_for_token(code: str, code_verifier: str) -> Dict:
     Raises:
         httpx.HTTPError: If token exchange fails
     """
+    # Use x_oauth_callback_url if set, otherwise use x_redirect_uri
+    redirect_uri = settings.x_oauth_callback_url or settings.x_redirect_uri
+    
     async with httpx.AsyncClient() as client:
         response = await client.post(
             X_OAUTH_TOKEN_URL,
@@ -160,7 +149,7 @@ async def exchange_code_for_token(code: str, code_verifier: str) -> Dict:
                 "code": code,
                 "grant_type": "authorization_code",
                 "client_id": settings.x_client_id,
-                "redirect_uri": settings.x_oauth_callback_url,
+                "redirect_uri": redirect_uri,
                 "code_verifier": code_verifier
             },
             auth=(settings.x_client_id, settings.x_client_secret),

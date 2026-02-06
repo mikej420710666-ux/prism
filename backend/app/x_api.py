@@ -4,25 +4,12 @@ OAuth 2.0 authentication and API calls
 """
 
 import tweepy
-from pydantic_settings import BaseSettings
 from typing import List, Dict, Optional
 from datetime import datetime
 import logging
+from app.database import settings
 
 logger = logging.getLogger(__name__)
-
-
-class Settings(BaseSettings):
-    x_client_id: str
-    x_client_secret: str
-    x_bearer_token: str
-    x_oauth_callback_url: str
-
-    class Config:
-        env_file = ".env"
-
-
-settings = Settings()
 
 
 class XAPIClient:

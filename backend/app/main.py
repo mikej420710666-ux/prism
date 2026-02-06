@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 import secrets
 import os
 
-from app.database import get_db
+from app.database import get_db, settings
 from app.models import User, Post, ScheduledPost
 from app.schemas import UserResponse, Token
 from app.dependencies import get_current_user
@@ -28,19 +28,6 @@ from app.x_api import XAPIClient
 from app.ai_service import AIRemixer
 from pydantic import BaseModel
 from typing import Optional, List
-
-
-class Settings(BaseSettings):
-    app_name: str = "PRISM"
-    app_env: str = "development"
-    port: int = 8003
-    allowed_origins: str = "http://localhost:3000"
-
-    class Config:
-        env_file = ".env"
-
-
-settings = Settings()
 
 app = FastAPI(
     title=settings.app_name,

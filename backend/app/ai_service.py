@@ -6,25 +6,12 @@ Claude, Mistral, and Grok APIs for tweet remixing
 from anthropic import Anthropic
 from mistralai import Mistral
 from openai import OpenAI
-from pydantic_settings import BaseSettings
 from typing import Dict, List
 import json
 import logging
+from app.database import settings
 
 logger = logging.getLogger(__name__)
-
-
-class Settings(BaseSettings):
-    anthropic_api_key: str
-    mistral_api_key: str
-    grok_api_key: str
-    grok_base_url: str = "https://api.x.ai/v1"
-
-    class Config:
-        env_file = ".env"
-
-
-settings = Settings()
 
 
 class AIRemixer:
@@ -36,11 +23,11 @@ class AIRemixer:
     def __init__(self):
         # Initialize AI clients
         self.claude = Anthropic(api_key=settings.anthropic_api_key)
-        self.mistral = Mistral(api_key=settings.mistral_api_key)
+        self.mistral = Mistral(api_key=settings.mistral_api_key) if settings.mistral_api_key else None
         self.grok = OpenAI(
-            api_key=settings.grok_api_key,
+            api_key=settings.grok_api_key or settings.xai_api_key,
             base_url=settings.grok_base_url
-        )
+        ) if (settings.grok_api_key or settings.xai_api_key) else None
 
 
     def analyze_voice(self, tweets: List[str]) -> Dict:

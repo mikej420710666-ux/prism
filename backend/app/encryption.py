@@ -3,18 +3,8 @@ AES-256 encryption for storing X OAuth tokens
 """
 
 from cryptography.fernet import Fernet
-from pydantic_settings import BaseSettings
 import base64
-
-
-class Settings(BaseSettings):
-    encryption_key: str  # 32-byte key encoded as base64
-
-    class Config:
-        env_file = ".env"
-
-
-settings = Settings()
+from app.database import settings
 
 
 class TokenEncryption:

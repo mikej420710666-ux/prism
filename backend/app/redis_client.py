@@ -3,18 +3,8 @@ Redis client for caching and rate limiting
 """
 
 import redis
-from pydantic_settings import BaseSettings
 from typing import Optional
-
-
-class Settings(BaseSettings):
-    redis_url: str = "redis://localhost:6379/3"
-
-    class Config:
-        env_file = ".env"
-
-
-settings = Settings()
+from app.database import settings
 
 # Global Redis client
 redis_client = redis.from_url(

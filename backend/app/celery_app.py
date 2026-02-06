@@ -3,23 +3,11 @@ Celery configuration and background tasks
 """
 
 from celery import Celery
-from pydantic_settings import BaseSettings
 from datetime import datetime, timedelta
 import logging
+from app.database import settings
 
 logger = logging.getLogger(__name__)
-
-
-class Settings(BaseSettings):
-    celery_broker_url: str = "redis://localhost:6379/3"
-    celery_result_backend: str = "redis://localhost:6379/3"
-    database_url: str
-
-    class Config:
-        env_file = ".env"
-
-
-settings = Settings()
 
 # Celery app
 celery_app = Celery(

@@ -1,13 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { Check, Sparkles, Zap, TrendingUp, Clock } from 'lucide-react';
+import { useState, Suspense } from 'react';import { Check, Sparkles, Zap, TrendingUp, Clock } from 'lucide-react';
 import { api } from '@/lib/api';
 import toast from 'react-hot-toast';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { auth } from '@/lib/auth';
 
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default function PricingPage() {
   const router = useRouter();

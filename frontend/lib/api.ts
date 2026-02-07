@@ -21,7 +21,9 @@ import type {
   PortalSession,
 } from './types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8003';
+// Use empty baseURL for Vercel proxy to work (rewrites /api/* to backend)
+// For local dev, set NEXT_PUBLIC_API_URL=http://localhost:8003
+const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
 
 /**
  * Axios instance with JWT authentication

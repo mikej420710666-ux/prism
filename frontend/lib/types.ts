@@ -107,3 +107,31 @@ export interface AnalyticsPost {
     engagement_score: number;
   };
 }
+
+export interface Subscription {
+  plan_type: 'free' | 'pro';
+  status: string | null;
+  is_pro: boolean;
+  current_period_end: string | null;
+  cancel_at_period_end: boolean;
+  canceled_at: string | null;
+}
+
+export interface Payment {
+  id: number;
+  amount: number;
+  currency: string;
+  status: string;
+  description: string;
+  paid_at: string | null;
+  failure_reason: string | null;
+}
+
+export interface CheckoutSession {
+  session_id: string;
+  url: string;
+}
+
+export interface PortalSession {
+  url: string;
+}

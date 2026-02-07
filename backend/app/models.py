@@ -45,6 +45,14 @@ class User(Base):
     # Relationships
     posts = relationship("Post", back_populates="user")
     scheduled_posts = relationship("ScheduledPost", back_populates="user")
+    subscription = relationship("Subscription", back_populates="user", uselist=False)
+
+    @property
+    def is_pro(self) -> bool:
+        """Check if user has active Pro subscription"""
+        if not self.subscription:
+            return False
+        return self.subscription.status == "active" and self.subscription.plan_type == "pro"
 
 
 class Post(Base):
@@ -108,3 +116,82 @@ class ScheduledPost(Base):
 
     # Relationships
     user = relationship("User", back_populates="scheduled_posts")
+
+
+class Subscription(Base):
+    """
+    User subscription - tracks Stripe subscription status
+    """
+    __tablename__ = "subscriptions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), unique=True)
+
+    # Stripe Data
+    stripe_customer_id = Column(String, unique=True, index=True)
+    stripe_subscription_id = Column(String, unique=True, index=True, nullable=True)
+    stripe_price_id = Column(String)
+
+    # Subscription Status
+    status = Column(String, default="incomplete")  # incomplete, active, canceled, past_due, unpaid
+    plan_type = Column(String, default="free")  # free, pro
+    current_period_start = Column(DateTime(timezone=True), nullable=True)
+    current_period_end = Column(DateTime(timezone=True), nullable=True)
+    cancel_at_period_end = Column(Boolean, default=False)
+    canceled_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    user = relationship("User", back_populates="subscription")
+    payment_history = relationship("PaymentHistory", back_populates="subscription")
+
+
+class PaymentHistory(Base):
+    """
+    Payment transaction history
+    """
+    __tablename__ = "payment_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    subscription_id = Column(Integer, ForeignKey("subscriptions.id"))
+
+    # Stripe Data
+    stripe_payment_intent_id = Column(String, unique=True, index=True)
+    stripe_invoice_id = Column(String, unique=True, index=True, nullable=True)
+
+    # Payment Details
+    amount = Column(Integer)  # Amount in cents
+    currency = Column(String, default="usd")
+    status = Column(String)  # succeeded, failed, pending, canceled
+    payment_method = Column(String, nullable=True)
+
+    # Metadata
+    description = Column(Text, nullable=True)
+    failure_reason = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    paid_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    subscription = relationship("Subscription", back_populates="payment_history")
+
+
+class StripeWebhookEvent(Base):
+    """
+    Stripe webhook events - ensures idempotency
+    """
+    __tablename__ = "stripe_webhook_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    stripe_event_id = Column(String, unique=True, index=True)
+    event_type = Column(String)
+    processed = Column(Boolean, default=False)
+    processing_error = Column(Text, nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    processed_at = Column(DateTime(timezone=True), nullable=True)

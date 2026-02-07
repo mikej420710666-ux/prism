@@ -15,6 +15,10 @@ import type {
   ScheduledPost,
   DiscoverParams,
   AnalyticsPost,
+  Subscription,
+  Payment,
+  CheckoutSession,
+  PortalSession,
 } from './types';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8003';
@@ -182,6 +186,58 @@ export const api = {
     posts: AnalyticsPost[];
   }> {
     const { data } = await apiClient.get('/api/analytics/posts');
+    return data;
+  },
+
+  // ============================================================================
+  // BILLING & SUBSCRIPTIONS
+  // ============================================================================
+
+  /**
+   * Create Stripe checkout session
+   */
+  async createCheckout(): Promise<CheckoutSession> {
+    const { data } = await apiClient.post('/api/billing/create-checkout');
+    return data;
+  },
+
+  /**
+   * Create Stripe customer portal session
+   */
+  async createPortal(): Promise<PortalSession> {
+    const { data } = await apiClient.post('/api/billing/create-portal');
+    return data;
+  },
+
+  /**
+   * Get subscription status
+   */
+  async getSubscription(): Promise<Subscription> {
+    const { data } = await apiClient.get('/api/billing/subscription');
+    return data;
+  },
+
+  /**
+   * Cancel subscription
+   */
+  async cancelSubscription(): Promise<{ success: boolean; message: string; period_end: string }> {
+    const { data } = await apiClient.post('/api/billing/cancel');
+    return data;
+  },
+
+  /**
+   * Reactivate subscription
+   */
+  async reactivateSubscription(): Promise<{ success: boolean; message: string }> {
+    const { data } = await apiClient.post('/api/billing/reactivate');
+    return data;
+  },
+
+  /**
+   * Get payment history
+   */
+  async getPaymentHistory(): Promise<{ count: number; payments: Payment[] }> {
+    const { data } = await apiClient.get('/api/billing/history');
     return data;
   },
 };

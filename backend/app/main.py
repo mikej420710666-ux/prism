@@ -13,7 +13,7 @@ import secrets
 import os
 
 from app.database import get_db, settings
-from app.models import User, Post, ScheduledPost
+from app.models import User, Post, ScheduledPost, Subscription, PaymentHistory, StripeWebhookEvent
 from app.schemas import UserResponse, Token
 from app.dependencies import get_current_user
 from app.auth import (
@@ -26,6 +26,9 @@ from app.redis_client import redis_client
 from app.celery_app import analyze_user_voice, post_scheduled_tweet
 from app.x_api import XAPIClient
 from app.ai_service import AIRemixer
+from app.stripe_service import StripeService
+from app.stripe_webhooks import WebhookHandler
+import stripe
 from pydantic import BaseModel
 from typing import Optional, List
 
@@ -579,5 +582,338 @@ async def get_post_analytics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch analytics: {str(e)}"
+        )
+
+
+# ============================================================================
+# STRIPE & BILLING ROUTES
+# ============================================================================
+
+@app.post("/api/billing/create-checkout")
+async def create_checkout_session(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create Stripe Checkout session for Pro subscription
+
+    Returns:
+        Checkout session URL and ID
+    """
+    # Get or create subscription record
+    subscription = db.query(Subscription).filter(
+        Subscription.user_id == current_user.id
+    ).first()
+
+    if not subscription:
+        # Create Stripe customer
+        customer_id = StripeService.create_customer(current_user)
+
+        # Create subscription record
+        subscription = Subscription(
+            user_id=current_user.id,
+            stripe_customer_id=customer_id,
+            stripe_price_id=settings.stripe_pro_price_id,
+            status='incomplete',
+            plan_type='free'
+        )
+        db.add(subscription)
+        db.commit()
+        db.refresh(subscription)
+
+    # Check if already pro
+    if subscription.status == 'active' and subscription.plan_type == 'pro':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Already subscribed to Pro plan"
+        )
+
+    try:
+        # Create checkout session
+        session_data = StripeService.create_checkout_session(
+            user=current_user,
+            subscription=subscription,
+            success_url=f"{settings.frontend_url}/dashboard?upgrade=success",
+            cancel_url=f"{settings.frontend_url}/pricing?upgrade=canceled"
+        )
+
+        return session_data
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create checkout session: {str(e)}"
+        )
+
+
+@app.post("/api/billing/create-portal")
+async def create_portal_session(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Create Stripe Customer Portal session
+
+    Returns:
+        Portal session URL
+    """
+    subscription = db.query(Subscription).filter(
+        Subscription.user_id == current_user.id
+    ).first()
+
+    if not subscription or not subscription.stripe_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No subscription found"
+        )
+
+    try:
+        portal_data = StripeService.create_portal_session(
+            customer_id=subscription.stripe_customer_id,
+            return_url=f"{settings.frontend_url}/settings"
+        )
+
+        return portal_data
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create portal session: {str(e)}"
+        )
+
+
+@app.get("/api/billing/subscription")
+async def get_subscription_status(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get current user's subscription status
+
+    Returns:
+        Subscription details
+    """
+    subscription = db.query(Subscription).filter(
+        Subscription.user_id == current_user.id
+    ).first()
+
+    if not subscription:
+        return {
+            "plan_type": "free",
+            "status": None,
+            "is_pro": False
+        }
+
+    return {
+        "plan_type": subscription.plan_type,
+        "status": subscription.status,
+        "is_pro": current_user.is_pro,
+        "current_period_end": subscription.current_period_end.isoformat() if subscription.current_period_end else None,
+        "cancel_at_period_end": subscription.cancel_at_period_end,
+        "canceled_at": subscription.canceled_at.isoformat() if subscription.canceled_at else None
+    }
+
+
+@app.post("/api/billing/cancel")
+async def cancel_subscription(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Cancel subscription at period end
+
+    Returns:
+        Updated subscription status
+    """
+    subscription = db.query(Subscription).filter(
+        Subscription.user_id == current_user.id
+    ).first()
+
+    if not subscription or not subscription.stripe_subscription_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active subscription found"
+        )
+
+    if subscription.status != 'active':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Subscription is not active"
+        )
+
+    try:
+        # Cancel at period end via Stripe
+        StripeService.cancel_subscription(subscription.stripe_subscription_id)
+
+        # Update local record
+        subscription.cancel_at_period_end = True
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Subscription will be canceled at period end",
+            "period_end": subscription.current_period_end.isoformat()
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel subscription: {str(e)}"
+        )
+
+
+@app.post("/api/billing/reactivate")
+async def reactivate_subscription(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Reactivate a subscription set to cancel
+
+    Returns:
+        Updated subscription status
+    """
+    subscription = db.query(Subscription).filter(
+        Subscription.user_id == current_user.id
+    ).first()
+
+    if not subscription or not subscription.stripe_subscription_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No subscription found"
+        )
+
+    if not subscription.cancel_at_period_end:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Subscription is not set to cancel"
+        )
+
+    try:
+        # Reactivate via Stripe
+        StripeService.reactivate_subscription(subscription.stripe_subscription_id)
+
+        # Update local record
+        subscription.cancel_at_period_end = False
+        db.commit()
+
+        return {
+            "success": True,
+            "message": "Subscription reactivated"
+        }
+
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reactivate subscription: {str(e)}"
+        )
+
+
+@app.get("/api/billing/history")
+async def get_payment_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get user's payment history
+
+    Returns:
+        List of past payments
+    """
+    subscription = db.query(Subscription).filter(
+        Subscription.user_id == current_user.id
+    ).first()
+
+    if not subscription:
+        return {"count": 0, "payments": []}
+
+    payments = db.query(PaymentHistory).filter(
+        PaymentHistory.subscription_id == subscription.id
+    ).order_by(PaymentHistory.created_at.desc()).limit(50).all()
+
+    return {
+        "count": len(payments),
+        "payments": [
+            {
+                "id": p.id,
+                "amount": p.amount / 100,  # Convert cents to dollars
+                "currency": p.currency.upper(),
+                "status": p.status,
+                "description": p.description,
+                "paid_at": p.paid_at.isoformat() if p.paid_at else None,
+                "failure_reason": p.failure_reason
+            }
+            for p in payments
+        ]
+    }
+
+
+@app.post("/api/webhooks/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Handle Stripe webhook events
+
+    Processes subscription lifecycle events
+    """
+    payload = await request.body()
+    sig_header = request.headers.get('stripe-signature')
+
+    try:
+        # Verify webhook signature
+        event = StripeService.construct_webhook_event(payload, sig_header)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid payload")
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid signature")
+
+    # Check if event already processed (idempotency)
+    existing_event = db.query(StripeWebhookEvent).filter(
+        StripeWebhookEvent.stripe_event_id == event['id']
+    ).first()
+
+    if existing_event and existing_event.processed:
+        return {"status": "already_processed"}
+
+    # Create or update event record
+    if not existing_event:
+        webhook_event = StripeWebhookEvent(
+            stripe_event_id=event['id'],
+            event_type=event['type']
+        )
+        db.add(webhook_event)
+        db.commit()
+        db.refresh(webhook_event)
+    else:
+        webhook_event = existing_event
+
+    # Process event based on type
+    try:
+        event_handlers = {
+            'checkout.session.completed': WebhookHandler.handle_checkout_completed,
+            'customer.subscription.updated': WebhookHandler.handle_subscription_updated,
+            'customer.subscription.deleted': WebhookHandler.handle_subscription_deleted,
+            'invoice.paid': WebhookHandler.handle_invoice_paid,
+            'invoice.payment_failed': WebhookHandler.handle_invoice_payment_failed,
+        }
+
+        handler = event_handlers.get(event['type'])
+        if handler:
+            handler(event['data'], db)
+
+        # Mark as processed
+        webhook_event.processed = True
+        webhook_event.processed_at = datetime.utcnow()
+        db.commit()
+
+        return {"status": "success"}
+
+    except Exception as e:
+        webhook_event.processing_error = str(e)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Webhook processing failed: {str(e)}"
         )
 
